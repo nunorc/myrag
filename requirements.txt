@@ -1,0 +1,7 @@
+chromadb
+langchain
+langchain-community
+langchain-chroma
+langchain-ollama
+streamlit
+streamlit_chat
