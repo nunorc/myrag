@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFDirectoryLoader
+from langchain_community.document_loaders import PyPDFDirectoryLoader, DirectoryLoader, TextLoader
 from langchain.schema.document import Document
 from langchain_ollama import OllamaLLM, OllamaEmbeddings
 from langchain.prompts import ChatPromptTemplate
@@ -41,9 +41,15 @@ Answer the question based on the above context: {question}
 """
 
     def _load_documents(self, path):
-        document_loader = PyPDFDirectoryLoader(path)
+        docs = []
 
-        return document_loader.load()
+        pdf_loader = PyPDFDirectoryLoader(path)
+        docs += pdf_loader.load()
+
+        txt_loader = DirectoryLoader(path, glob="**/*.txt", loader_cls=TextLoader)
+        docs += txt_loader.load()
+
+        return docs
 
     def _split_documents(self, docs: list[Document]):
         text_splitter = RecursiveCharacterTextSplitter(
