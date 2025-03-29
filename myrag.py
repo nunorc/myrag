@@ -1,5 +1,5 @@
 
-import os, chromadb
+import os, logging, chromadb
 from dotenv import load_dotenv
 
 from langchain_chroma import Chroma
@@ -17,28 +17,38 @@ class MyRAG:
                  ollama_url = os.getenv('MYRAG_OLLAMA_URL', 'http://localhost:11434'),
                  chromadb_host = os.getenv('MYRAG_CHROMADB_HOST', 'localhost'),
                  chromadb_port = int(os.getenv('MYRAG_CHROMADB_PORT', '8000')),
-                 model = os.getenv('MYRAG_MODEL', 'mistral')
+                 model = os.getenv('MYRAG_MODEL', 'mistral'),
+                 log_level = logging.INFO
             ):
         
         # setup embeddings
         self.embeddings = OllamaEmbeddings(model=embeddings, base_url=ollama_url)
 
-        # sestup vector store
+        # setup vector store
         self.client = chromadb.HttpClient(host = chromadb_host, port = chromadb_port)
         self.vector_store = Chroma(client=self.client, embedding_function=self.embeddings)
 
         # setup llm model
         self.model = OllamaLLM(model=model, base_url=ollama_url)
 
-        self.PROMPT_TEMPLATE = """
-Answer the question based only on the following context:
+        PROMPT_TEMPLATE = """
+            ### [INST] Answer the question based only on the following context:
+            {context}
+            ---
+            ### QUESTION Answer the question based on the above context and provide the relevant information in your answer: {question}
+            [/INST]
+            """
+        self.prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
 
-{context}
+        # logging
+        logging.basicConfig(
+            format = '%(asctime)s | %(levelname)s: %(message)s',
+            datefmt = "%Y-%m-%d %H:%M:%S",
+            level = log_level
+        )
+        self.logger = logging.getLogger(__name__)
 
----
-
-Answer the question based on the above context: {question}
-"""
+        self.logger.info(f"New MyRAG, embeddings='{embeddings}' model='{model}'")
 
     def _load_documents(self, path):
         docs = []
@@ -67,16 +77,15 @@ Answer the question based on the above context: {question}
 
         for chunk in chunks:
             source = chunk.metadata.get("source")
-            page = chunk.metadata.get("page")
+            page = chunk.metadata.get("page") or 0
             current_page_id = f"{source}:{page}"
 
-            # If the page ID is the same as the last one, increment the index.
+            # re-set chunk number for every page
             if current_page_id == last_page_id:
                 current_chunk_index += 1
             else:
                 current_chunk_index = 0
 
-            # calculate chunk_id
             chunk_id = f"{current_page_id}:{current_chunk_index}"
             last_page_id = current_page_id
             chunk.metadata["id"] = chunk_id
@@ -88,7 +97,8 @@ Answer the question based on the above context: {question}
 
         existing_items = self.vector_store.get(include=[])
         existing_ids = set(existing_items["ids"])
-        print(f"Number of existing documents in vetor store: {len(existing_ids)}")
+        self.logger.info(f"Number of existing documents in vetor store: {len(existing_ids)}")
+
 
         new_chunks = []
         for chunk in chunks_with_ids:
@@ -96,15 +106,15 @@ Answer the question based on the above context: {question}
                 new_chunks.append(chunk)
 
         if len(new_chunks):
-            print(f"Adding new documents: {len(new_chunks)}")
+            self.logger.info(f"Adding new documents: {len(new_chunks)}")
             new_chunk_ids = [chunk.metadata["id"] for chunk in new_chunks]
             self.vector_store.add_documents(new_chunks, ids=new_chunk_ids)
         else:
-            print("No new documents to add")
+            self.logger.info("No new documents to add")
 
     def import_docs(self, path:str = None):
         if not os.path.exists(path):
-            print(f"Path not found: {path}")
+            self.logger.error(f"Path not found: {path}")
             exit(0)
 
         docs = self._load_documents(path)
@@ -112,15 +122,20 @@ Answer the question based on the above context: {question}
         self._add_to_vector_store(chunks)
 
     def query(self, query: str = None):
-        results = self.vector_store.similarity_search_with_score(query, k=5)
+        results = self.vector_store.similarity_search_with_score(query, k=4)
 
         context = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
-        prompt_template = ChatPromptTemplate.from_template(self.PROMPT_TEMPLATE)
-        prompt = prompt_template.format(context=context, question=query)
+        prompt = self.prompt_template.format(context=context, question=query)
 
         response = self.model.invoke(prompt)
 
         sources = [doc.metadata.get("id", None) for doc, _score in results]
-        formatted_response = f"{response}\n\nSources: {sources}"
+        formatted_response = f"{response}\n\nSources:\n{sources}\n\nContext:\n{context}"
 
-        return formatted_response, { 'response': response, 'sources': sources}
+        data = {
+            'response': response,
+            'sources': sources,
+            'context': context
+        }
+
+        return formatted_response, data

@@ -1,7 +1,7 @@
 
 # MyRAG
 
-Bootstraping a minimalist RAG based qestion-answering application to run locally.
+Bootstraping a minimalist RAG based question-answering application to run locally.
 
 ## Quickstart
 
@@ -30,7 +30,8 @@ Or perform query from python:
 from myrag import MyRAG
 
 rag = MyRAG()
-text, response = rag.query('when was PUS issued')
+response_text, data = rag.query("question text")
+  # returns the response text and the data including the text, the sources and the context
 ```
 
 ## Acknowledgements

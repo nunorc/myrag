@@ -9,6 +9,8 @@ services:
       - ./volumes/chromadb/data:/chromadb/data
     ports:
       - "8000:8000"
+    environment:
+      - PERSIST_DIRECTORY=/chromadb/data
 
   ollama:
     image: ollama/ollama
